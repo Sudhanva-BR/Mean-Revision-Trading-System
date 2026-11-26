@@ -44,40 +44,77 @@ The strategy is long-only.
 
 ## 3. Project Architecture
 
+### System Architecture Diagram
+
+```mermaid
+flowchart TD
+    YF["download_data.py (yfinance)"] -->|"Fetches 5Y OHLCV"| CSV["data/RELIANCE.csv"]
+    CSV -->|"CSV Rows"| MD["MarketData::loadCSV"]
+    MD -->|"Candle Series"| DS["DataSplitter::split (70% / 30%)"]
+
+    DS -->|"70% Training Data"| OPT["ParameterOptimizer::optimize"]
+    DS -->|"30% Testing Data + 19 Warm-up Candles"| IND["Indicators::calculate (SMA, StdDev, Z-Score)"]
+    DS -->|"30% Testing Data"| BM["Benchmark::calculateBuyAndHoldReturn"]
+
+    IND -->|"Z-Score Series"| STRAT["Strategy::generateSignal (BUY / SELL / HOLD)"]
+    STRAT -->|"Daily Signal"| PT["PaperTrader (Position Sizing, Slippage, Fees)"]
+    PT -->|"Next-Day Open Execution"| PT
+    PT -->|"Equity History & Trades"| PERF["Performance (Return, Sharpe, MaxDD, Win Rate, Profit Factor)"]
+
+    PERF -->|"Strategy Metrics"| OUT["Console Report & Benchmark Comparison"]
+    BM -->|"Buy & Hold Return"| OUT
+
+    OPT -.->|"Grid Search (Window & Thresholds)"| IND
+    OPT -.->|"Evaluates via"| PT
+
+    IND -.->|"Standalone Mode"| BT["Backtester::run"]
+    STRAT -.->|"Signals"| BT
+    TESTS["tests/tests.cpp (MeanReversionTests)"] -.->|"Unit Tests"| MD
+    TESTS -.->|"Unit Tests"| IND
+    TESTS -.->|"Unit Tests"| STRAT
+    TESTS -.->|"Unit Tests"| DS
+    TESTS -.->|"Unit Tests"| PT
+    TESTS -.->|"Unit Tests"| PERF
+```
+
+### Directory Structure
+
 ```text
-C++ Mean Reversion Trading System
+C++ Mean Revision Trading System/
+│
+├── .gitignore
+├── CMakeLists.txt               # Builds MeanReversion & MeanReversionTests
+├── download_data.py             # Downloads RELIANCE.NS historical data via yfinance
+├── README.md
 │
 ├── data/
-│   └── RELIANCE.csv
+│   └── RELIANCE.csv             # Historical OHLCV market data
 │
 ├── include/
-│   ├── MarketData.h
-│   ├── Indicators.h
-│   ├── Strategy.h
-│   ├── Backtester.h
-│   ├── Performance.h
-│   ├── PaperTrader.h
-│   ├── Benchmark.h
-│   ├── DataSplitter.h
-│   └── ParameterOptimizer.h
+│   ├── Backtester.h             # Standalone trade-level backtester interface
+│   ├── Benchmark.h              # Buy-and-Hold return calculator
+│   ├── DataSplitter.h           # Train/test data splitter
+│   ├── Indicators.h             # SMA, Standard Deviation, Z-Score
+│   ├── MarketData.h             # Candle struct & CSV loader
+│   ├── PaperTrader.h            # Portfolio, equity curve & trade execution
+│   ├── ParameterOptimizer.h     # Grid search parameter optimizer
+│   ├── Performance.h            # Return, Sharpe, drawdown, win rate & profit factor
+│   └── Strategy.h               # Mean reversion signal generator
 │
 ├── src/
-│   ├── main.cpp
-│   ├── MarketData.cpp
-│   ├── Indicators.cpp
-│   ├── Strategy.cpp
+│   ├── main.cpp                 # Entry point orchestrating the pipeline
 │   ├── Backtester.cpp
-│   ├── Performance.cpp
-│   ├── PaperTrader.cpp
 │   ├── Benchmark.cpp
 │   ├── DataSplitter.cpp
-│   └── ParameterOptimizer.cpp
+│   ├── Indicators.cpp
+│   ├── MarketData.cpp
+│   ├── PaperTrader.cpp
+│   ├── ParameterOptimizer.cpp
+│   ├── Performance.cpp
+│   └── Strategy.cpp
 │
-├── tests/
-│   └── tests.cpp
-│
-├── CMakeLists.txt
-└── README.md
+└── tests/
+    └── tests.cpp                # Unit tests for all core modules
 ```
 
 ## 4. Technologies Used
