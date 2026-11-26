@@ -162,20 +162,46 @@ The strategy is also compared against a Buy-and-Hold benchmark.
 
 ## 8. Backtest Results
 
-Backtested on historical **RELIANCE.NS** daily stock data (`data/RELIANCE.csv`, 1,236 candles from 2021-11-26 to 2026-11-26, 70/30 split):
-- **Training Period**: 865 candles
-- **Testing Period**: 371 candles (2025-05-29 to 2026-11-26)
-- **Initial Capital**: ₹100,000.00 | **Final Strategy Equity**: ₹100,570.92 | **Final Buy & Hold Equity**: ₹97,291.58
+Evaluated on historical **RELIANCE.NS** daily stock data (`data/RELIANCE.csv`, 1,236 trading days from `2021-11-26` to `2026-11-26`) using a strict **70% / 30% out-of-sample split**:
+- **Training Period**: 865 trading days
+- **Testing Period**: 371 trading days (`2025-05-29` to `2026-11-26`)
+- **Initial Capital**: ₹100,000.00 (10% cash allocation per trade, 0.1% transaction cost, 0.05% slippage)
 
-| Metric | Mean Reversion | Buy & Hold |
+> **Interactive Dashboard:** Open [`dashboard.html`](dashboard.html) locally in any browser (or run `python backtest.py data/RELIANCE.csv`) to explore interactive charts and the full trade-by-trade log.
+
+### Strategy Performance Metrics
+
+| Metric | Result | Description |
 |---|---|---|
-| Total Return | +0.5709% | -2.7084% |
-| Sharpe Ratio (Annualized) | 0.3700 | 0.0237 |
-| Maximum Drawdown | 0.9026% | 27.2750% |
-| Win Rate | 57.14% (4W / 3L) | — |
-| Total Trades | 7 | 1 |
-| Profit Factor | 1.6607 | — |
-| Excess Return vs Benchmark | +3.2793% | — |
+| **Total Return** | **+0.57%** (₹100,570.92) | Net portfolio gain after fees and slippage |
+| **Annualized Sharpe Ratio** | **0.37** | Risk-adjusted return relative to daily volatility |
+| **Maximum Drawdown** | **0.90%** | Largest peak-to-trough portfolio decline |
+| **Win Rate** | **57.14%** (4W / 3L) | Percentage of profitable round-trip trades |
+| **Total Trades** | **7** | Completed buy-to-sell round-trips |
+| **Profit Factor** | **1.66** | Ratio of gross profits (₹1,435.08) to gross losses (₹864.16) |
+
+### Benchmark Comparison (Mean Reversion vs. Buy & Hold)
+
+**Buy & Hold** represents passively investing 100% of the initial ₹100,000 in RELIANCE.NS on the first day of the testing period (`2025-05-29`) and holding until the end (`2026-11-26`) with no active risk management. Because the Mean Reversion strategy only deploys 10% of cash on high-conviction oversold signals ($Z \le -2.0$) and exits on stop-loss ($Z \le -3.0$), it preserved capital during RELIANCE's downturn and outperformed Buy & Hold by **+3.28%** with **30× lower drawdown**.
+
+| Portfolio Metric | Mean Reversion (10% Allocation) | Buy & Hold (100% Passive) |
+|---|---|---|
+| **Final Equity** | **₹100,570.92** | ₹97,291.58 |
+| **Total Return** | **+0.57%** | -2.71% |
+| **Sharpe Ratio (Annualized)** | **0.37** | 0.02 |
+| **Maximum Drawdown** | **0.90%** | 27.28% |
+| **Outperformance (Alpha)** | **+3.28%** | Baseline |
+
+### Visual Results
+
+#### Equity Curve
+![Equity Curve](docs/equity_curve.png)
+
+#### Drawdown Chart
+![Drawdown Chart](docs/drawdown_chart.png)
+
+#### Benchmark Comparison (Mean Reversion vs. Buy & Hold)
+![Benchmark Comparison](docs/benchmark_comparison.png)
 
 ## 9. Build Instructions
 

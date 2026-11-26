@@ -17,6 +17,3 @@ Thumbs.db
 
 # Data files (downloaded separately)
 data/*.csv
-
-# Generated dashboard
-dashboard.html

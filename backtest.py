@@ -596,6 +596,88 @@ drawAll();
     return str(Path(output_path).resolve())
 
 
+def generate_charts(result, output_dir='docs'):
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from datetime import datetime
+    except ImportError:
+        return []
+
+    os.makedirs(output_dir, exist_ok=True)
+    saved = []
+
+    bg = '#0f172a'
+    card_bg = '#1e293b'
+    fg = '#e2e8f0'
+    muted = '#94a3b8'
+    grid_col = '#334155'
+    green = '#22c55e'
+    red = '#ef4444'
+    blue = '#3b82f6'
+
+    def style_ax(ax, title, ylabel):
+        ax.set_facecolor(card_bg)
+        ax.set_title(title, color=fg, fontsize=13, fontweight='bold', pad=12, loc='left')
+        ax.set_ylabel(ylabel, color=muted, fontsize=10)
+        ax.tick_params(colors=muted, labelsize=9)
+        ax.grid(True, color=grid_col, linestyle='--', linewidth=0.6, alpha=0.7)
+        for spine in ax.spines.values():
+            spine.set_color(grid_col)
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+
+    eq_dates = [datetime.strptime(p['date'], '%Y-%m-%d') for p in result['equityCurve']]
+    eq_vals = [p['equity'] for p in result['equityCurve']]
+    dd_dates = [datetime.strptime(p['date'], '%Y-%m-%d') for p in result['drawdownSeries']]
+    dd_vals = [p['drawdown'] for p in result['drawdownSeries']]
+    bm_dates = [datetime.strptime(p['date'], '%Y-%m-%d') for p in result['benchmarkCurve']]
+    bm_vals = [p['equity'] for p in result['benchmarkCurve']]
+
+    # 1. Equity Curve
+    fig, ax = plt.subplots(figsize=(10, 4.2), facecolor=bg)
+    style_ax(ax, 'Equity Curve — Mean Reversion Strategy (RELIANCE.NS)', 'Portfolio Value (INR)')
+    ax.plot(eq_dates, eq_vals, color=green, linewidth=2.0, label='Strategy Equity')
+    ax.axhline(result['summary']['initialCapital'], color=muted, linestyle=':', linewidth=1.0, label='Initial Capital (Rs 100,000)')
+    ax.legend(facecolor=card_bg, edgecolor=grid_col, labelcolor=fg, fontsize=9)
+    fig.tight_layout()
+    p1 = os.path.join(output_dir, 'equity_curve.png')
+    fig.savefig(p1, dpi=150, facecolor=bg)
+    plt.close(fig)
+    saved.append(p1)
+
+    # 2. Drawdown Chart
+    fig, ax = plt.subplots(figsize=(10, 4.0), facecolor=bg)
+    style_ax(ax, 'Drawdown Chart — Portfolio Decline from Peak', 'Drawdown (%)')
+    ax.plot(dd_dates, dd_vals, color=red, linewidth=1.8, label=f"Max Drawdown: -{result['metrics']['maxDrawdown']:.2f}%")
+    ax.fill_between(dd_dates, dd_vals, 0, color=red, alpha=0.20)
+    ax.legend(facecolor=card_bg, edgecolor=grid_col, labelcolor=fg, fontsize=9)
+    fig.tight_layout()
+    p2 = os.path.join(output_dir, 'drawdown_chart.png')
+    fig.savefig(p2, dpi=150, facecolor=bg)
+    plt.close(fig)
+    saved.append(p2)
+
+    # 3. Benchmark Comparison
+    fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=bg)
+    style_ax(ax, 'Benchmark Comparison — Mean Reversion vs. Buy & Hold', 'Portfolio Value (INR)')
+    ax.plot(eq_dates, eq_vals, color=green, linewidth=2.2,
+            label=f"Mean Reversion ({result['metrics']['totalReturn']:+.2f}%)")
+    ax.plot(bm_dates, bm_vals, color=blue, linewidth=1.8, alpha=0.9,
+            label=f"Buy & Hold ({result['metrics']['buyAndHoldReturn']:+.2f}%)")
+    ax.axhline(result['summary']['initialCapital'], color=muted, linestyle=':', linewidth=1.0)
+    ax.legend(facecolor=card_bg, edgecolor=grid_col, labelcolor=fg, fontsize=9)
+    fig.tight_layout()
+    p3 = os.path.join(output_dir, 'benchmark_comparison.png')
+    fig.savefig(p3, dpi=150, facecolor=bg)
+    plt.close(fig)
+    saved.append(p3)
+
+    return saved
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
     json_only = '--json' in args
@@ -627,5 +709,8 @@ if __name__ == '__main__':
 
         dashboard_file = generate_dashboard_html(result, 'dashboard.html')
         print(f"Dashboard saved : {dashboard_file}")
+        charts = generate_charts(result, 'docs')
+        if charts:
+            print(f"Charts saved    : {', '.join(charts)}")
         if not no_open:
             webbrowser.open(Path(dashboard_file).as_uri())
