@@ -9,6 +9,8 @@ import math
 import json
 import sys
 import os
+import webbrowser
+from pathlib import Path
 
 # ─── Data Loading ───────────────────────────────────────────────
 
@@ -261,6 +263,26 @@ def run_backtest(csv_path):
             'totalEquity': bnh_eq
         })
 
+    # Buy-and-Hold Sharpe & Max Drawdown
+    bnh_rets = [
+        (bnh_equity[i]['totalEquity'] - bnh_equity[i - 1]['totalEquity']) / bnh_equity[i - 1]['totalEquity']
+        for i in range(1, len(bnh_equity))
+        if bnh_equity[i - 1]['totalEquity'] > 0
+    ]
+    bnh_sharpe = 0.0
+    if len(bnh_rets) > 1:
+        bnh_mean = sum(bnh_rets) / len(bnh_rets)
+        bnh_var = sum((r - bnh_mean) ** 2 for r in bnh_rets) / (len(bnh_rets) - 1)
+        bnh_std = math.sqrt(bnh_var)
+        if bnh_std > 0:
+            bnh_sharpe = (bnh_mean / bnh_std) * math.sqrt(252)
+
+    bnh_peak = bnh_equity[0]['totalEquity']
+    bnh_max_dd = 0.0
+    for point in bnh_equity:
+        bnh_peak = max(bnh_peak, point['totalEquity'])
+        bnh_max_dd = max(bnh_max_dd, (bnh_peak - point['totalEquity']) / bnh_peak)
+
     # ─── Build Output ───────────────────────────────────────────
 
     output = {
@@ -272,6 +294,7 @@ def run_backtest(csv_path):
             'testEndDate': testing_data[-1]['date'],
             'initialCapital': initial_capital,
             'finalEquity': round(final_equity, 2),
+            'bnhFinalEquity': round(bnh_equity[-1]['totalEquity'], 2),
         },
         'metrics': {
             'totalReturn': round(total_return, 4),
@@ -283,6 +306,8 @@ def run_backtest(csv_path):
             'losingTrades': len(losing_trades),
             'profitFactor': round(profit_factor, 4) if profit_factor != float('inf') else 'Infinity',
             'buyAndHoldReturn': round(bnh_return, 4),
+            'bnhSharpe': round(bnh_sharpe, 4),
+            'bnhMaxDrawdown': round(bnh_max_dd * 100, 4),
             'avgWin': round(avg_win, 2),
             'avgLoss': round(avg_loss, 2),
             'excessReturn': round(total_return - bnh_return, 4),
@@ -303,7 +328,304 @@ def run_backtest(csv_path):
     return output
 
 
+def generate_dashboard_html(result, output_path='dashboard.html'):
+    data_json = json.dumps({
+        'summary': result['summary'],
+        'metrics': result['metrics'],
+        'equity': [{'d': p['date'], 'v': p['equity']} for p in result['equityCurve']],
+        'drawdown': [{'d': p['date'], 'v': p['drawdown']} for p in result['drawdownSeries']],
+        'benchmark': [{'d': p['date'], 'v': p['equity']} for p in result['benchmarkCurve']],
+        'trades': result['trades'],
+    })
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mean Reversion Backtest Dashboard</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0; padding: 24px;
+      background: #0f172a; color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }}
+    .container {{ max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }}
+    .header {{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid #334155; }}
+    .header h1 {{ margin: 0; font-size: 20px; }}
+    .sub {{ margin: 4px 0 0; font-size: 12px; color: #94a3b8; }}
+    .badge {{ padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; font-family: monospace; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }}
+    .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px; }}
+    .label {{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; }}
+    .val {{ font-size: 22px; font-weight: 700; margin-top: 6px; font-family: monospace; }}
+    .hint {{ font-size: 11px; color: #94a3b8; margin-top: 4px; }}
+    .pos {{ color: #22c55e; }}
+    .neg {{ color: #ef4444; }}
+    .chart-head {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; flex-wrap: wrap; }}
+    .chart-head h2 {{ margin: 0; font-size: 15px; }}
+    .readout {{ font-size: 12px; font-family: monospace; color: #94a3b8; }}
+    canvas {{ display: block; width: 100%; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 12px; font-family: monospace; }}
+    th, td {{ padding: 9px 12px; text-align: left; border-bottom: 1px solid #334155; }}
+    th {{ background: #0f172a; color: #94a3b8; font-weight: 600; }}
+    tr:hover td {{ background: #263449; }}
+    .right {{ text-align: right; }}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>Mean Reversion Backtest Results</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <span class="badge" id="excessBadge"></span>
+  </div>
+
+  <div class="grid" id="metricsGrid"></div>
+
+  <div class="card">
+    <div class="chart-head">
+      <div>
+        <h2>1. Equity Curve</h2>
+        <p class="sub">Portfolio value over time</p>
+      </div>
+      <span class="readout" id="readout-equity">Hover chart for values</span>
+    </div>
+    <canvas id="canvas-equity" height="220"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <div>
+        <h2>2. Drawdown Chart</h2>
+        <p class="sub">Portfolio decline from peak equity (%)</p>
+      </div>
+      <span class="readout" id="readout-drawdown">Hover chart for values</span>
+    </div>
+    <canvas id="canvas-drawdown" height="200"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="chart-head">
+      <div>
+        <h2>3. Benchmark Comparison (Mean Reversion vs Buy &amp; Hold)</h2>
+        <p class="sub">Strategy equity vs passive Buy &amp; Hold</p>
+      </div>
+      <span class="readout" id="readout-benchmark">Hover chart for values</span>
+    </div>
+    <canvas id="canvas-benchmark" height="230"></canvas>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div style="padding:14px 16px; border-bottom:1px solid #334155;">
+      <h2 style="margin:0; font-size:15px;">Completed Trades</h2>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Entry Date</th><th>Exit Date</th><th>Qty</th><th>Entry</th><th>Exit</th><th class="right">Net P&amp;L</th></tr>
+        </thead>
+        <tbody id="tradeRows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {data_json};
+const s = DATA.summary, m = DATA.metrics;
+
+document.getElementById('subtitle').textContent =
+  `Testing Period: ${{s.testStartDate}} -> ${{s.testEndDate}} (${{s.testingCandles}} days · 70/30 split of ${{s.totalCandles}} candles) · Initial Capital: ₹${{s.initialCapital.toLocaleString()}}`;
+
+const excessBadge = document.getElementById('excessBadge');
+excessBadge.textContent = `Excess Return: ${{m.excessReturn >= 0 ? '+' : ''}}${{m.excessReturn.toFixed(2)}}%`;
+excessBadge.style.background = m.excessReturn >= 0 ? '#16a34a' : '#dc2626';
+excessBadge.style.color = '#ffffff';
+
+const cards = [
+  {{ label: 'Total Return', val: `${{m.totalReturn >= 0 ? '+' : ''}}${{m.totalReturn.toFixed(2)}}%`, cls: m.totalReturn >= 0 ? 'pos' : 'neg', hint: `₹${{s.finalEquity.toLocaleString()}} final equity` }},
+  {{ label: 'Sharpe Ratio', val: m.sharpeRatio.toFixed(2), cls: '', hint: `Annualized (vs ${{m.bnhSharpe.toFixed(2)}} B&H)` }},
+  {{ label: 'Max Drawdown', val: `-${{m.maxDrawdown.toFixed(2)}}%`, cls: 'neg', hint: `vs -${{m.bnhMaxDrawdown.toFixed(2)}}% Buy & Hold` }},
+  {{ label: 'Win Rate', val: `${{m.winRate.toFixed(2)}}%`, cls: m.winRate >= 50 ? 'pos' : 'neg', hint: `${{m.winningTrades}}W / ${{m.losingTrades}}L` }},
+  {{ label: 'Total Trades', val: m.totalTrades, cls: '', hint: 'Completed round-trips' }},
+  {{ label: 'Profit Factor', val: typeof m.profitFactor === 'number' ? m.profitFactor.toFixed(2) : m.profitFactor, cls: 'pos', hint: 'Gross profit / Gross loss' }},
+  {{ label: 'Buy & Hold Return', val: `${{m.buyAndHoldReturn >= 0 ? '+' : ''}}${{m.buyAndHoldReturn.toFixed(2)}}%`, cls: m.buyAndHoldReturn >= 0 ? 'pos' : 'neg', hint: `₹${{s.bnhFinalEquity.toLocaleString()}} final value` }},
+  {{ label: 'Excess Return', val: `${{m.excessReturn >= 0 ? '+' : ''}}${{m.excessReturn.toFixed(2)}}%`, cls: m.excessReturn >= 0 ? 'pos' : 'neg', hint: 'Strategy - Benchmark' }},
+];
+
+const grid = document.getElementById('metricsGrid');
+cards.forEach(c => {{
+  grid.innerHTML += `<div class="card"><div class="label">${{c.label}}</div><div class="val ${{c.cls}}">${{c.val}}</div><div class="hint">${{c.hint}}</div></div>`;
+}});
+
+const tbody = document.getElementById('tradeRows');
+DATA.trades.forEach((t, idx) => {{
+  const cls = t.netPnL >= 0 ? 'pos' : 'neg';
+  const sign = t.netPnL >= 0 ? '+' : '';
+  tbody.innerHTML += `<tr>
+    <td>${{idx + 1}}</td><td>${{t.entryDate}}</td><td>${{t.exitDate}}</td><td>${{t.quantity}}</td>
+    <td>₹${{t.entryPrice.toFixed(2)}}</td><td>₹${{t.exitPrice.toFixed(2)}}</td>
+    <td class="right ${{cls}}">${{sign}}₹${{t.netPnL.toFixed(2)}}</td>
+  </tr>`;
+}});
+
+const dpr = window.devicePixelRatio || 1;
+const pad = {{ l: 68, r: 20, t: 22, b: 28 }};
+
+function prepCanvas(canvas, heightCss) {{
+  const w = Math.max(300, canvas.parentElement.clientWidth - 32);
+  canvas.style.width = w + 'px';
+  canvas.style.height = heightCss + 'px';
+  canvas.width = w * dpr;
+  canvas.height = heightCss * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {{ ctx, w, h: heightCss }};
+}}
+
+function drawGrid(ctx, data, min, max, w, h, unit) {{
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 0.7;
+  ctx.font = '11px monospace';
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'right';
+
+  for (let i = 0; i <= 4; i++) {{
+    const y = pad.t + (plotH / 4) * i;
+    const val = max - ((max - min) / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    const label = unit === '₹' ? '₹' + Math.round(val).toLocaleString() : val.toFixed(2) + '%';
+    ctx.fillText(label, pad.l - 6, y + 4);
+  }}
+
+  ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(data.length / 6));
+  for (let i = 0; i < data.length; i += step) {{
+    const x = pad.l + (i / (data.length - 1)) * plotW;
+    const parts = data[i].d.split('-');
+    ctx.fillText(parts[1] + '/' + parts[0].slice(2), x, h - 6);
+  }}
+}}
+
+function drawSeries(ctx, data, min, max, w, h, color, fillAlpha) {{
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  const range = max - min || 1;
+  ctx.beginPath();
+  data.forEach((d, i) => {{
+    const x = pad.l + (i / (data.length - 1)) * plotW;
+    const y = pad.t + plotH - ((d.v - min) / range) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }});
+  if (fillAlpha) {{
+    const baseY = Math.max(pad.t, Math.min(pad.t + plotH, pad.t + plotH - ((0 - min) / range) * plotH));
+    ctx.lineTo(pad.l + plotW, baseY);
+    ctx.lineTo(pad.l, baseY);
+    ctx.closePath();
+    ctx.save(); ctx.globalAlpha = fillAlpha; ctx.fillStyle = color; ctx.fill(); ctx.restore();
+    ctx.beginPath();
+    data.forEach((d, i) => {{
+      const x = pad.l + (i / (data.length - 1)) * plotW;
+      const y = pad.t + plotH - ((d.v - min) / range) * plotH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }});
+  }}
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+}}
+
+function drawAll() {{
+  {{
+    const {{ ctx, w, h }} = prepCanvas(document.getElementById('canvas-equity'), 220);
+    const vals = DATA.equity.map(d => d.v);
+    const min = Math.min(...vals) - 100, max = Math.max(...vals) + 100;
+    drawGrid(ctx, DATA.equity, min, max, w, h, '₹');
+    drawSeries(ctx, DATA.equity, min, max, w, h, '#22c55e', 0);
+  }}
+  {{
+    const {{ ctx, w, h }} = prepCanvas(document.getElementById('canvas-drawdown'), 200);
+    const vals = DATA.drawdown.map(d => d.v);
+    const min = Math.min(...vals, -1.0), max = 0.05;
+    drawGrid(ctx, DATA.drawdown, min, max, w, h, '%');
+    drawSeries(ctx, DATA.drawdown, min, max, w, h, '#ef4444', 0.2);
+  }}
+  {{
+    const {{ ctx, w, h }} = prepCanvas(document.getElementById('canvas-benchmark'), 230);
+    const all = [...DATA.equity.map(d => d.v), ...DATA.benchmark.map(d => d.v)];
+    const min = Math.min(...all) - 1000, max = Math.max(...all) + 1000;
+    drawGrid(ctx, DATA.equity, min, max, w, h, '₹');
+    drawSeries(ctx, DATA.benchmark, min, max, w, h, '#3b82f6', 0);
+    drawSeries(ctx, DATA.equity, min, max, w, h, '#22c55e', 0);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#22c55e'; ctx.fillRect(pad.l + 10, pad.t + 2, 14, 3);
+    ctx.fillStyle = '#e2e8f0'; ctx.fillText(`Mean Reversion (${{m.totalReturn >= 0 ? '+' : ''}}${{m.totalReturn.toFixed(2)}}%)`, pad.l + 30, pad.t + 7);
+    ctx.fillStyle = '#3b82f6'; ctx.fillRect(pad.l + 215, pad.t + 2, 14, 3);
+    ctx.fillStyle = '#e2e8f0'; ctx.fillText(`Buy & Hold (${{m.buyAndHoldReturn >= 0 ? '+' : ''}}${{m.buyAndHoldReturn.toFixed(2)}}%)`, pad.l + 235, pad.t + 7);
+  }}
+}}
+
+function attachHover(canvasId, readoutId, formatter) {{
+  const canvas = document.getElementById(canvasId);
+  const readout = document.getElementById(readoutId);
+  canvas.addEventListener('mousemove', e => {{
+    const rect = canvas.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left - pad.l) / (rect.width - pad.l - pad.r)));
+    const idx = Math.round(frac * (DATA.equity.length - 1));
+    readout.textContent = formatter(idx);
+  }});
+  canvas.addEventListener('mouseleave', () => {{ readout.textContent = 'Hover chart for values'; }});
+}}
+
+attachHover('canvas-equity', 'readout-equity', i => `${{DATA.equity[i].d}} · ₹${{DATA.equity[i].v.toLocaleString()}}`);
+attachHover('canvas-drawdown', 'readout-drawdown', i => `${{DATA.drawdown[i].d}} · ${{DATA.drawdown[i].v.toFixed(2)}}%`);
+attachHover('canvas-benchmark', 'readout-benchmark', i => `${{DATA.equity[i].d}} · Strategy: ₹${{DATA.equity[i].v.toLocaleString()}} | B&H: ₹${{DATA.benchmark[i].v.toLocaleString()}}`);
+
+window.addEventListener('resize', drawAll);
+drawAll();
+</script>
+</body>
+</html>
+"""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    return str(Path(output_path).resolve())
+
+
 if __name__ == '__main__':
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else 'data/RELIANCE.csv'
+    args = sys.argv[1:]
+    json_only = '--json' in args
+    no_open = '--no-open' in args
+    positional = [a for a in args if not a.startswith('--')]
+    csv_path = positional[0] if positional else 'data/RELIANCE.csv'
+
     result = run_backtest(csv_path)
-    print(json.dumps(result))
+    if 'error' in result:
+        print(f"Error: {result['error']}")
+        sys.exit(1)
+
+    if json_only:
+        print(json.dumps(result))
+    else:
+        m = result['metrics']
+        s = result['summary']
+        print("\n========== BACKTEST SUMMARY ==========")
+        print(f"Period          : {s['testStartDate']} to {s['testEndDate']} ({s['testingCandles']} days)")
+        print(f"Total Return    : {m['totalReturn']:+.4f}% (Final: Rs {s['finalEquity']:,.2f})")
+        print(f"Sharpe Ratio    : {m['sharpeRatio']:.4f}")
+        print(f"Max Drawdown    : {m['maxDrawdown']:.4f}%")
+        print(f"Win Rate        : {m['winRate']:.2f}% ({m['winningTrades']}W / {m['losingTrades']}L)")
+        print(f"Total Trades    : {m['totalTrades']}")
+        print(f"Profit Factor   : {m['profitFactor']}")
+        print(f"Buy & Hold      : {m['buyAndHoldReturn']:+.4f}%")
+        print(f"Excess Return   : {m['excessReturn']:+.4f}%")
+        print("======================================")
+
+        dashboard_file = generate_dashboard_html(result, 'dashboard.html')
+        print(f"Dashboard saved : {dashboard_file}")
+        if not no_open:
+            webbrowser.open(Path(dashboard_file).as_uri())
