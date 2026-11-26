@@ -1,0 +1,19 @@
+# Build directories
+cmake-build-debug/
+cmake-build-release/
+build/
+
+# IDE files
+.idea/
+
+# Compiled objects
+*.o
+*.obj
+*.exe
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data files (downloaded separately)
+data/*.csv
