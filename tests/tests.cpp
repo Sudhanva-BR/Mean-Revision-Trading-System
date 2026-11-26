@@ -4,8 +4,10 @@
 #include "Strategy.h"
 #include "DataSplitter.h"
 #include "PaperTrader.h"
+#include "Performance.h"
 
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <cmath>
 #include <cassert>
@@ -118,6 +120,46 @@ void testPaperTrader() {
     std::cout << "PaperTrader test passed\n";
 }
 
+void testMarketDataHeaderOrder() {
+    const std::string tempFile = "test_market_data_tmp.csv";
+    {
+        std::ofstream out(tempFile);
+        out << "Date,Adj Close,Close,High,Low,Open,Volume\n";
+        out << "2026-01-01,99.5,102.0,105.0,98.0,100.0,15000\n";
+    }
+
+    auto candles = MarketData::loadCSV(tempFile);
+    std::remove(tempFile.c_str());
+
+    assert(candles.size() == 1);
+    assert(candles[0].date == "2026-01-01");
+    assert(std::abs(candles[0].open - 100.0) < 0.0001);
+    assert(std::abs(candles[0].high - 105.0) < 0.0001);
+    assert(std::abs(candles[0].low - 98.0) < 0.0001);
+    assert(std::abs(candles[0].close - 102.0) < 0.0001);
+    assert(candles[0].volume == 15000);
+
+    std::cout << "MarketData header-order test passed\n";
+}
+
+void testTradeMetrics() {
+    PaperTrade win1;
+    win1.netProfitLoss = 300.0;
+    PaperTrade win2;
+    win2.netProfitLoss = 200.0;
+    PaperTrade loss1;
+    loss1.netProfitLoss = -250.0;
+
+    TradeMetrics m = Performance::calculateTradeMetrics({win1, win2, loss1});
+    assert(m.totalTrades == 3);
+    assert(m.winningTrades == 2);
+    assert(m.losingTrades == 1);
+    assert(std::abs(m.winRate - 66.6667) < 0.01);
+    assert(std::abs(m.profitFactor - 2.0) < 0.0001);
+
+    std::cout << "TradeMetrics test passed\n";
+}
+
 int main() {
 
     std::cout << "\nRunning Unit Tests...\n\n";
@@ -126,6 +168,8 @@ int main() {
     testStrategy();
     testDataSplitter();
     testPaperTrader();
+    testMarketDataHeaderOrder();
+    testTradeMetrics();
 
     std::cout << "\nAll unit tests passed!\n";
 

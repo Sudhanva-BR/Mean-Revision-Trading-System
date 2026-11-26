@@ -171,6 +171,15 @@ int main() {
         initialCapital
     );
 
+    TradeMetrics tradeMetrics =
+        Performance::calculateTradeMetrics(trades);
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Win Rate: " << tradeMetrics.winRate << "% ("
+              << tradeMetrics.winningTrades << "W / "
+              << tradeMetrics.losingTrades << "L)\n";
+    std::cout << "Profit Factor: " << tradeMetrics.profitFactor << '\n';
+
     // 13. Calculate Buy-and-Hold benchmark
     double benchmarkReturn =
         Benchmark::calculateBuyAndHoldReturn(

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iomanip>
 #include <algorithm>
+#include <limits>
 #include <numeric>
 
 double Performance::calculate(
@@ -55,7 +56,11 @@ double Performance::calculate(
         variance += (r - meanReturn) * (r - meanReturn);
     }
 
-    variance /= (dailyReturns.size() - 1);
+    if (dailyReturns.size() > 1) {
+        variance /= (dailyReturns.size() - 1);
+    } else {
+        variance = 0.0;
+    }
 
     double dailyStdDev = std::sqrt(variance);
 
@@ -104,4 +109,36 @@ double Performance::calculate(
     std::cout << "========================================\n";
 
     return totalReturn;
+}
+
+TradeMetrics Performance::calculateTradeMetrics(
+    const std::vector<PaperTrade>& trades
+) {
+    TradeMetrics metrics;
+    metrics.totalTrades = static_cast<int>(trades.size());
+
+    if (trades.empty()) {
+        return metrics;
+    }
+
+    for (const auto& trade : trades) {
+        if (trade.netProfitLoss > 0.0) {
+            ++metrics.winningTrades;
+            metrics.grossProfits += trade.netProfitLoss;
+        } else {
+            ++metrics.losingTrades;
+            metrics.grossLosses += std::abs(trade.netProfitLoss);
+        }
+    }
+
+    metrics.winRate =
+        (static_cast<double>(metrics.winningTrades) / metrics.totalTrades) * 100.0;
+
+    if (metrics.grossLosses > 0.0) {
+        metrics.profitFactor = metrics.grossProfits / metrics.grossLosses;
+    } else if (metrics.grossProfits > 0.0) {
+        metrics.profitFactor = std::numeric_limits<double>::infinity();
+    }
+
+    return metrics;
 }

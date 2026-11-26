@@ -116,19 +116,29 @@ The system calculates:
 - Total portfolio return
 - Annualized Sharpe ratio
 - Maximum drawdown
+- Win rate
+- Total trades
+- Profit factor
 - Daily equity curve
 
 The strategy is also compared against a Buy-and-Hold benchmark.
 
 ## 8. Backtest Results
 
-Results will be added after successfully executing and validating the project.
+Backtested on historical **RELIANCE.NS** daily stock data (`data/RELIANCE.csv`, 1,236 candles from 2021-11-26 to 2026-11-26, 70/30 split):
+- **Training Period**: 865 candles
+- **Testing Period**: 371 candles (2025-05-29 to 2026-11-26)
+- **Initial Capital**: ₹100,000.00 | **Final Strategy Equity**: ₹100,570.92 | **Final Buy & Hold Equity**: ₹97,291.58
 
 | Metric | Mean Reversion | Buy & Hold |
 |---|---|---|
-| Total Return | Pending | Pending |
-| Sharpe Ratio | Pending | Pending |
-| Maximum Drawdown | Pending | Pending |
+| Total Return | +0.5709% | -2.7084% |
+| Sharpe Ratio (Annualized) | 0.3700 | 0.0237 |
+| Maximum Drawdown | 0.9026% | 27.2750% |
+| Win Rate | 57.14% (4W / 3L) | — |
+| Total Trades | 7 | 1 |
+| Profit Factor | 1.6607 | — |
+| Excess Return vs Benchmark | +3.2793% | — |
 
 ## 9. Build Instructions
 
